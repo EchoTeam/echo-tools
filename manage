@@ -1,0 +1,92 @@
+#!/bin/env python
+
+# pip install fogbugz, please :)
+
+from fogbugz import FogBugz
+import os.path
+import sys
+import yaml
+
+config = {}
+fb = FogBugz("https://echo.fogbugz.com/")
+
+def main():
+    readConfig()
+    logon()
+    if len(sys.argv) <= 1:
+        usage()
+        return
+
+    if "create" == sys.argv[1]:
+        create(sys.argv[2:])
+        return
+
+    print "Bad command\n"
+    sys.exit(1)
+
+def readConfig():
+    global config
+    name = os.path.expanduser("~/.managerc")
+    try:
+        file = open(name)
+        config = yaml.load(file)
+    except IOError:
+        print "Bad ~/.managerc file\n"
+        print "Ok, I'll generate it for you. Now please edit it.\n"
+        cfg = {"fogbugz": {
+            "login": "login@aboutecho.com",
+            "password": "Lol123",
+            "defaults": {
+                "branch": "login/\%d-",
+                "assigned": "Name Surname",
+                "project": "Echo Platform West",
+                "area": "Misc",
+                "category": "Bug",
+                "title": "",
+                "status": "New"
+                }
+            }}
+
+        str = yaml.dump(cfg, indent = 4, default_flow_style = False)
+        with open(name, "w") as configFile:
+            configFile.write(str)
+
+        sys.exit(2)
+
+def logon():
+    global config, fb
+    try:
+        login    = config["fogbugz"]["login"]
+        password = config["fogbugz"]["password"]
+        fb.logon(login, password)
+    except KeyError:
+        print "~/.managerc does not contain fogbugz's login or password\n"
+        sys.exit(3)
+
+def usage():
+    print "Usage: manage create\n"
+
+def create(args):
+    global config, fb
+    vars = config["fogbugz"]["defaults"]
+    msg = """
+title: %(title)s
+branch: %(branch)s
+category: %(category)s
+assigned: %(assigned)s
+# category could be a "Bug", "Feature" or "Inquiry"
+
+project: %(project)s
+area:    %(area)s
+""" % vars
+    print msg
+    
+
+
+
+
+
+if __name__ == "__main__":
+    main()
+
+# vim: ts=4 sw=4 et ft=python
