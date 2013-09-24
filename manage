@@ -5,7 +5,9 @@
 from fogbugz import FogBugz
 import os.path
 import sys
+import tempfile
 import yaml
+from subprocess import call
 
 config = {}
 fb = FogBugz("https://echo.fogbugz.com/")
@@ -37,7 +39,7 @@ def readConfig():
             "login": "login@aboutecho.com",
             "password": "Lol123",
             "defaults": {
-                "branch": "login/\%d-",
+                "branch": "login/%d-",
                 "assigned": "Name Surname",
                 "project": "Echo Platform West",
                 "area": "Misc",
@@ -66,24 +68,98 @@ def logon():
 def usage():
     print "Usage: manage create\n"
 
-def create(args):
+def editor(args = {}):
     global config, fb
-    vars = config["fogbugz"]["defaults"]
-    msg = """
-title: %(title)s
+    defs = config["fogbugz"]["defaults"].copy()
+    defs.update(args)
+    event_lines =  [4*' ' + line for line in defs['event'].splitlines()]
+    defs['event'] = '\n'.join(event_lines)
+    for k, v in defs.items():
+        if None == v:
+            defs[k] = ''
+        
+    msg = """title: %(title)s
 branch: %(branch)s
 category: %(category)s
-assigned: %(assigned)s
 # category could be a "Bug", "Feature" or "Inquiry"
-
+assigned: %(assigned)s
 project: %(project)s
 area:    %(area)s
-""" % vars
-    print msg
+event: |
+%(event)s
+
+# vim: ts=4 sw=4 et ft=yaml
+""" % defs
+    tmp, name = tempfile.mkstemp()
+    os.write(tmp, msg)
+    os.close(tmp)
+    EDITOR = os.environ.get('EDITOR', 'vim')
+    call([EDITOR, name])
+    with open(name, 'r') as tmp:
+        return yaml.load(tmp)
+
     
+def create(args):
+    global fb
+    ok = False
+    case = {}
+    while not ok:
+        case = editor(case)
+        ok = True
+        if None == case:
+            print 'Aborted.\n'
+            return
+        ok &= check(case, 'title', 'Bad title')
+        ok &= check(case, 'branch', 'Bad branch')
+        if not ok:
+            print 'Type any key to edit again or "quit" to escape: '
+            user = raw_input()
+            if 'quit' == raw_input().strip():
+                print 'Aborted.\n'
+                return
+    query = fbmap(case)
+    ans = fb.new(**query)
+
+    ixBug = int(ans.case['ixbug'])
+    branch = case['branch'] % ixBug
+    updCase = {'id': ixBug,
+            'branch': branch
+            }
+    query = fbmap(updCase)
+    ans = fb.edit(**query)
+    print 'Ok, I create F:%d in fogbugz.\nYour branch is %s' % (ixBug, branch)
+
+
+def check(case, field, message):
+    if field not in case or case[field] == None or len(case[field]) < 2:
+        print message + "\n"
+        return False
+    return True
+
+def fbmap(case):
+    map = { 'title': 'sTitle',
+            'project': 'sProject',
+            'area': 'sArea',
+            'category': 'sCategory',
+            'priority': 'sPriority',
+            'version': 'sVersion',
+            'event': 'sEvent',
+            'branch': 'plugin_customfields_at_fogcreek_com_branchb71',
+            'message': 'sScoutMessage',
+            'assigned': 'sPersonAssignedTo',
+            'id':  'ixBug'
+            }
+    out = {}
+    for k, v in map.items():
+        if k in case:
+            out[v] = case[k]
+    return out
 
 
 
+
+        
+    
 
 
 if __name__ == "__main__":
