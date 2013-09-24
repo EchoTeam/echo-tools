@@ -10,21 +10,29 @@ import yaml
 from subprocess import call
 
 config = {}
-fb = FogBugz("https://echo.fogbugz.com/")
+domain = "https://echo.fogbugz.com/"
 
 def main():
     readConfig()
-    logon()
     if len(sys.argv) <= 1:
         usage()
         return
+    
+    args = sys.argv[2:]
+    fundict = {
+            'create': create,
+            'toqa': toqa,
+            'resolve': resolve,
+            'close': close,
+            'rc': rc
+            }
 
-    if "create" == sys.argv[1]:
-        create(sys.argv[2:])
-        return
-
-    print "Bad command\n"
-    sys.exit(1)
+    logon()
+    try:
+        fundict[sys.argv[1]](args)
+    except KeyError:
+        print "Bad command\n"
+        sys.exit(1)
 
 def readConfig():
     global config
@@ -45,7 +53,8 @@ def readConfig():
                 "area": "Misc",
                 "category": "Bug",
                 "title": "",
-                "status": "New"
+                "status": "New",
+                "event": ""
                 }
             }}
 
@@ -56,8 +65,9 @@ def readConfig():
         sys.exit(2)
 
 def logon():
-    global config, fb
+    global config, fb, domain
     try:
+        fb = FogBugz(domain)
         login    = config["fogbugz"]["login"]
         password = config["fogbugz"]["password"]
         fb.logon(login, password)
@@ -66,7 +76,26 @@ def logon():
         sys.exit(3)
 
 def usage():
-    print "Usage: manage create\n"
+    print """manage/0.1
+Usage:
+    manage (create|toqa <case-id>|resolve <case-id>|close <case-id>|rc <case-id>)
+
+        create
+            Creates new fogbugz ticket.
+
+        toqa <case-id>
+            Setups status = QA, Assigned to = QA.
+
+        rc <case-id>
+            Like manage resolve <id> and manage close <id>.
+
+Example:
+    manage create
+    manage toqa 1456
+    manage rc 1456
+            
+"""
+
 
 def editor(args = {}):
     global config, fb
@@ -127,7 +156,19 @@ def create(args):
             }
     query = fbmap(updCase)
     ans = fb.edit(**query)
-    print 'Ok, I create F:%d in fogbugz.\nYour branch is %s' % (ixBug, branch)
+
+    print """Ok,
+F:%(id)d - %(title)s
+
+Fogbugz: %(domain)s?%(id)d
+Branch:  %(branch)s
+""" % {
+        'id': ixBug,
+        'title': case['title'],
+        'domain': domain,
+        'branch': branch
+        }
+    
 
 
 def check(case, field, message):
@@ -147,6 +188,8 @@ def fbmap(case):
             'branch': 'plugin_customfields_at_fogcreek_com_branchb71',
             'message': 'sScoutMessage',
             'assigned': 'sPersonAssignedTo',
+            'status': 'sStatus',
+            'tags': 'sTags',
             'id':  'ixBug'
             }
     out = {}
@@ -155,10 +198,53 @@ def fbmap(case):
             out[v] = case[k]
     return out
 
+def toqa(args):
+    global fb
+    try:
+        ixBug = int(args[0])
+    except:
+        print "Bad case number\n"
+        usage
+        sys.exit(1)
 
+    params = {'id': ixBug,
+            'status': 'QA',
+            'assigned': 'Default Assignee (QA)'
+            }
+    call = fbmap(params)
+    fb.edit(**call)
+    print 'Task F:%d is going to QA' % ixBug
 
+def resolve(args):
+    global fb
+    try:
+        ixBug = int(args[0])
+    except:
+        print "Bad case number\n"
+        usage
+        sys.exit(1)
 
-        
+    params = {'id': ixBug }
+    fb.resolve(**fbmap(params))
+    print 'Task F:%d is resolved' % ixBug
+
+def close(args):
+    global fb
+    try:
+        ixBug = int(args[0])
+    except:
+        print "Bad case number\n"
+        usage
+        sys.exit(1)
+
+    params = {'id': ixBug }
+    fb.close(**fbmap(params))
+    print 'Task F:%d is closed' % ixBug
+
+def rc(args):
+    resolve(args)
+    close(args)
+
     
 
 
