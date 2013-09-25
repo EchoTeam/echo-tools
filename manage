@@ -102,8 +102,7 @@ Example:
 
 
 def indent(string):
-    lines =  [4*' ' + line for line in string.splitlines()]
-    '\n'.join(event_lines)
+    '\n    '.join(string.splitlines())
 
 def editor(args = {}):
     global config, fb
@@ -124,10 +123,7 @@ assigned: %(assigned)s
 project: %(project)s
 area:    %(area)s
 event: |
-%(event)s
-
-message: |
-%(message)s
+    %(event)s
 
 # vim: ts=4 sw=4 et ft=yaml
 """ % defs
