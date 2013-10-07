@@ -1,15 +1,17 @@
 #!/bin/env python
-
-# pip install fogbugz, please :)
+# See docs/fogbugz.md for documentation
+# pip install fogbugz gitpython
 
 from fogbugz import FogBugz
 import os.path
 import sys
 import tempfile
 import yaml
+import git
 from subprocess import call
 
 config = {}
+selfdir = os.path.dirname(os.path.realpath(__file__))
 domain = "https://echo.fogbugz.com/"
 
 def main():
@@ -26,7 +28,9 @@ def main():
             'show': show,
             'resolve': resolve,
             'close': close,
-            'rc': rc
+            'rc': rc,
+
+            'update': update
             }
 
     logon()
@@ -306,6 +310,9 @@ def rc(args):
     resolve(args)
     close(args)
 
+def update(args):
+    g = git.cmd.Git(selfdir)
+    print g.pull('origin', 'master')
     
 
 

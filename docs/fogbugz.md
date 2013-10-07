@@ -1,4 +1,4 @@
-Manage
+fogbugz
 ==
 
 Currently this is a tool to operate fogbugz from console.
