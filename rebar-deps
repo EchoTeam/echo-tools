@@ -1,0 +1,45 @@
+#!/bin/env escript
+
+skip_tag({tag, Name}) -> Name;
+skip_tag(Name) when is_list(Name) -> Name;
+skip_tag(Term) ->
+    io:format(2, "Unknown type of version: ~p~n", [Term]),
+    lists:flatten(io_lib:format("~p", [Term])).
+
+
+getver(File, Component) -> 
+    {ok, Config} = file:consult(File),
+    Deps = proplists:get_value(deps, Config, []),
+    case lists:keyfind(list_to_atom(Component), 1, Deps) of
+        {_, _, {git, _Repo, Version}} ->
+            {ok, skip_tag(Version)};
+        false ->
+            {error, not_found};
+        _ ->
+            {error, other}
+    end.
+
+main([File, Component]) ->
+    case getver(File, Component) of
+        {ok, Version} ->
+            io:format("~s~n", [Version]);
+        {error, Reason} ->
+            io:format("Error: ~p~n", [Reason])
+    end;
+main([File, Component, NewVer]) ->
+    case getver(File, Component) of
+        {ok, OldVersion} ->
+            os:cmd(["sed -i 's/", OldVersion, "/", NewVer, "/' ", File]);
+        {error, Reason} ->
+            io:format("Error: could not get old version: ~p~n", [Reason])
+    end;
+main([File]) ->
+    {ok, Config} = file:consult(File),
+    Deps = proplists:get_value(deps, Config, []),
+    [io:format("~s|~s|~s~n", [Name, skip_tag(Version), Repo]) 
+     || {Name, _, {git, Repo, Version}} <- Deps];
+main(_) ->
+    io:format("rebar-ver: Bad arguments ~n").
+
+
+% vim: ft=erlang ts=4 sw=4 et
