@@ -2,6 +2,7 @@
 %%% vim: set ts=4 sts=4 sw=4 et:
 
 -define('TMP_FILENAME', "/tmp/get_implicit_deps.tmp").
+-define('ATOM_PATTERN', "[a-z]+\\w+").
 
 main([Help]) when Help =:= "?"; Help =:= "-h"; Help =:= "--help"; Help =:= "help" ->
     io:format("Usage:~n$0 <dirname>~n");
@@ -92,7 +93,7 @@ data(Lines) ->
 
 app_modules(Data) ->
     Modules = lists:foldl(fun({_File, Code}, R) ->
-        case re:run(Code, "module\\((\\w+)\\)", [{capture, all, list}]) of
+        case re:run(Code, "module\\((" ++ ?ATOM_PATTERN ++ ")\\)", [{capture, all, list}]) of
             {match, [_, Module]} ->
                 [Module | R];
             nomatch ->
@@ -108,21 +109,29 @@ deps_modules(Dirname) ->
             [];
         true ->
             {ok, Data} = file:consult(Filename),
-            Deps = proplists:get_value(deps, Data),
-            [Module || {Module, _V, _O} <- Deps]
+            case proplists:get_value(deps, Data) of
+                undefined ->
+                    [];
+                Deps ->
+                    lists:map(fun({Module, _V, _O}) ->
+                        Module
+                    end, Deps)
+            end
     end.
 
 functions(Data) ->
     Functions = lists:foldl(fun({{Filename, _Fileline} = File, Code}, R) ->
         case re:run(Filename, "\\.erl$", [{capture, all, list}]) of
             {match, _} -> 
-                R ++ case re:run(Code, "(\\w+):(\\w+)", [global, {capture, all, list}]) of
+                R ++ case re:run(Code, "(" ++ ?ATOM_PATTERN ++ "):(" ++ ?ATOM_PATTERN ++ ")",
+                                            [global, {capture, all, list}]) of
                     {match, Match1} ->
                         [{{M1, F1}, File} || [_, M1, F1] <- Match1];
                     nomatch ->
                         []
                 end     
-                ++ case re:run(Code, "apply\\(\\s*(\\w+)\\s*,\\s*(\\w+)\\s*,", [global, {capture, all, list}]) of
+                ++ case re:run(Code, "apply\\s*\\(\\s*(" ++ ?ATOM_PATTERN ++ ")\\s*,\\s*(" ++ ?ATOM_PATTERN ++ ")\\s*,",
+                                        [global, {capture, all, list}]) of
                     {match, Match2} ->
                         [{{M2, F2}, File} || [_, M2, F2] <- Match2];
                     nomatch ->
@@ -178,31 +187,89 @@ cwd() ->
 mf2str({M, F}) ->
     atom_to_list(M) ++ ":" ++ atom_to_list(F).
 
-can_apply('MODULE', _) -> true;
-can_apply(application, _) -> true;
-can_apply(erlang, _) -> true;
-can_apply(gen_server, _) -> true;
-can_apply(io, _) -> true;
-can_apply(lists, _) -> true;
-can_apply(proplists, _) -> true;
-can_apply(supervisor, _) -> true;
-can_apply(timer, _) -> true;
 can_apply(M, F) ->
-    case can_apply(M, F, [], 10) of
+    case lists:member(M, ['MODULE',
+        application,
+        application_controller,
+        application_master,
+        asn1ct,
+        base64,
+        binary,
+        calendar,
+        code,
+        crypto,
+        dict,
+        digraph,
+        digraph_utils,
+        disk_log,
+        erl_epmd,
+        erl_parse,
+        erl_scan,
+        erl_syntax,
+        erl_syntax_lib,
+        erlang,
+        error_logger,
+        ets,
+        file,
+        filename,
+        file_sorter,
+        ftp,
+        gb_trees,
+        gen,
+        gen_event,
+        gen_server,
+        gen_tcp,
+        gen_udp,
+        http_uri,
+        httpc,
+        httpd_util,
+        inet,
+        inet_db,
+        inet_parse,
+        inets,
+        io,
+        io_lib,
+        lists,
+        math,
+        net_adm,
+        ordsets,
+        os,
+        proplists,
+        prim_inet,
+        public_key,
+        queue,
+        random,
+        re,
+        rpc,
+        sets,
+        ssl,
+        string,
+        supervisor,
+        sys,
+        timer,
+        unicode,
+        xmerl_scan,
+        zlib
+    ]) of
         true ->
-            io:format("WARNING: ~s:~s~n function exists.", [M, F]),
             true;
-        false -> false
+        false ->
+            case can_apply(M, F, 0) of
+                {true, N} ->
+                    io:format("EXISTS: ~s:~s/~p~n", [M, F, N]),
+                    true;
+                false -> false
+            end
     end.
 
-can_apply(_M, _F, _Args, 0) -> false;
-can_apply(M, F, Args, N) ->
+can_apply(_M, _F, 10) -> false;
+can_apply(M, F, N) ->
     try
-        apply(M, F, Args),
-        true
+        apply(M, F, lists:seq(1, N)),
+        {true, N}
     catch
         error:undef ->
-            can_apply(M, F, [undefined | Args], N - 1);
+            can_apply(M, F, N + 1);
         _:_ ->
-            true
+            {true, N}
     end.
