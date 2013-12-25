@@ -21,6 +21,14 @@ main([]) ->
     parse(cwd()).
 
 parse(Dirname) ->
+    AppFile = Dirname ++ "/src/" ++ filename:basename(Dirname) ++ ".app.src",
+    case filelib:is_file(AppFile) of
+        true ->
+            nop;
+        false ->
+            io:format("File does not exists: ~s~n", [AppFile]),
+            exit(1)
+    end,
     Data = data(lines(Dirname)),
     ImplicitDeps = implicit_deps(functions(Data), app_modules(Data) ++ deps_modules(Dirname)),
     display(ImplicitDeps).
