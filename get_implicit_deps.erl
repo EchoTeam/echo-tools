@@ -2,37 +2,27 @@
 %%% vim: set ts=4 sts=4 sw=4 et:
 
 -define('TMP_FILENAME', "/tmp/get_implicit_deps.tmp").
--define('ATOM_PATTERN', "[a-z]+\\w+").
 
 main([Help]) when Help =:= "?"; Help =:= "-h"; Help =:= "--help"; Help =:= "help" ->
-    io:format("Usage:~n$0 <dirname>~n");
+    io:format("Usage:~n$0[ <dirname>]~n");
 
 main([Dirname]) ->
     FullDirname = filename:join(cwd(), Dirname),
-    case filelib:is_dir(FullDirname) of
-        true ->
+    case {filelib:is_dir(FullDirname), filelib:is_dir(Dirname)} of
+        {true, _} ->
             parse(FullDirname);
-        false ->
-            case filelib:is_dir(Dirname) of
-                true ->
-                    parse(Dirname);
-                false ->
-                    io:format("Directory does not exists: ~s~n", [Dirname]),
-                    exit(1)
-            end
+        {_, true} ->
+            parse(Dirname);
+        _ ->
+            io:format("Directory does not exists: ~s~n", [Dirname]),
+            exit(1)
     end;
 main([]) ->
     parse(cwd()).
 
 parse(Dirname) ->
-    Lines = lines(Dirname),
-    Data = data(Lines),
-
-    AppModules = app_modules(Data),
-    DepsModules = deps_modules(Dirname),
-    Functions = functions(Data),
-    ImplicitDeps = implicit_deps(Functions, AppModules ++ DepsModules),
-
+    Data = data(lines(Dirname)),
+    ImplicitDeps = implicit_deps(functions(Data), app_modules(Data) ++ deps_modules(Dirname)),
     display(ImplicitDeps).
 
 lines(Dirname) ->
@@ -41,9 +31,9 @@ lines(Dirname) ->
     Grep = fun(Pattern) ->
         cmd("cd " ++ Dirname ++ " && grep -nIR \"" ++ Pattern ++ "\" * | grep -v \"\.eunit\" >> " ++ ?TMP_FILENAME)
     end,
-    ok = Grep("[0-9a-z]*:[0-9a-z]*"),
-    ok = Grep("apply(\\s*[0-9a-z]*\\s*,\\s*[0-9a-z]*\\s*,"),
-    ok = Grep("module\\([0-9a-z]*\\)"),
+    ok = Grep(regexp({function, v1}, bash, false)),
+    ok = Grep(regexp({function, v2}, bash, false)),
+    ok = Grep(regexp(module, bash, false)),
 
     Lines = read_file(?TMP_FILENAME),
     ok = cmd("rm " ++ ?TMP_FILENAME),
@@ -93,11 +83,11 @@ data(Lines) ->
 
 app_modules(Data) ->
     Modules = lists:foldl(fun({_File, Code}, R) ->
-        case re:run(Code, "module\\((" ++ ?ATOM_PATTERN ++ ")\\)", [{capture, all, list}]) of
-            {match, [_, Module]} ->
-                [Module | R];
-            nomatch ->
-                R
+        case code_search(Code, module, undefined) of
+            [] ->
+                R;
+            [{{Module}, _}] ->
+                [Module | R]
         end
     end, [], Data),
     [list_to_atom(Module) || Module <- Modules].
@@ -123,20 +113,9 @@ functions(Data) ->
     Functions = lists:foldl(fun({{Filename, _Fileline} = File, Code}, R) ->
         case re:run(Filename, "\\.erl$", [{capture, all, list}]) of
             {match, _} -> 
-                R ++ case re:run(Code, "(" ++ ?ATOM_PATTERN ++ "):(" ++ ?ATOM_PATTERN ++ ")",
-                                            [global, {capture, all, list}]) of
-                    {match, Match1} ->
-                        [{{M1, F1}, File} || [_, M1, F1] <- Match1];
-                    nomatch ->
-                        []
-                end     
-                ++ case re:run(Code, "apply\\s*\\(\\s*(" ++ ?ATOM_PATTERN ++ ")\\s*,\\s*(" ++ ?ATOM_PATTERN ++ ")\\s*,",
-                                        [global, {capture, all, list}]) of
-                    {match, Match2} ->
-                        [{{M2, F2}, File} || [_, M2, F2] <- Match2];
-                    nomatch ->
-                        []
-                end;
+                R
+                    ++ code_search(Code, {function, v1}, File)
+                    ++ code_search(Code, {function, v2}, File);
             nomatch ->
                 R
         end
@@ -144,6 +123,37 @@ functions(Data) ->
     lists:usort([{{list_to_atom(M), list_to_atom(F)}, File} || {{M, F}, File} <- Functions]).
 
 % private functions
+
+regexp(lb, bash, _Save) ->
+    "(";
+regexp(lb, erlang, Save) ->
+    "\\" ++ regexp(lb, bash, Save);
+regexp(rb, bash, _Save) ->
+    ")";
+regexp(rb, erlang, Save) ->
+    "\\" ++ regexp(rb, bash, Save);
+
+regexp(atom, Type, true) ->
+    "(" ++ regexp(atom, Type, false) ++ ")";
+regexp(atom, _Type, false) ->
+    "[a-zA-Z][a-zA-Z0-9_]*";
+
+regexp(module, Type, Save) ->
+    "module" ++ regexp(lb, Type, Save) ++ regexp(atom, Type, Save) ++ regexp(rb, Type, Save);
+regexp({function, v1}, Type, Save) ->
+    regexp(atom, Type, Save) ++ ":" ++ regexp(atom, Type, Save);
+regexp({function, v2}, Type, Save) ->
+    "apply\\s*" ++ regexp(lb, Type, Save) ++ "\\s*" ++ regexp(atom, Type, Save) ++ "\\s*,\\s*" ++ regexp(atom, Type, Save) ++ "\\s*,";
+regexp(_, _, _) ->
+    erlang:error(badarg).
+
+code_search(Code, RegExpName, Info) ->
+    case re:run(Code, regexp(RegExpName, erlang, true), [global, {capture, all, list}]) of
+        {match, Match} ->
+            [{list_to_tuple(T), Info} || [_ | T] <- Match];
+        nomatch ->
+            []
+    end.
 
 read_file(Filename) ->
     case file:open(Filename, [raw, binary, read, exclusive, read_ahead]) of
@@ -187,89 +197,24 @@ cwd() ->
 mf2str({M, F}) ->
     atom_to_list(M) ++ ":" ++ atom_to_list(F).
 
-can_apply(M, F) ->
-    case lists:member(M, ['MODULE',
-        application,
-        application_controller,
-        application_master,
-        asn1ct,
-        base64,
-        binary,
-        calendar,
-        code,
-        crypto,
-        dict,
-        digraph,
-        digraph_utils,
-        disk_log,
-        erl_epmd,
-        erl_parse,
-        erl_scan,
-        erl_syntax,
-        erl_syntax_lib,
-        erlang,
-        error_logger,
-        ets,
-        file,
-        filename,
-        file_sorter,
-        ftp,
-        gb_trees,
-        gen,
-        gen_event,
-        gen_server,
-        gen_tcp,
-        gen_udp,
-        http_uri,
-        httpc,
-        httpd_util,
-        inet,
-        inet_db,
-        inet_parse,
-        inets,
-        io,
-        io_lib,
-        lists,
-        math,
-        net_adm,
-        ordsets,
-        os,
-        proplists,
-        prim_inet,
-        public_key,
-        queue,
-        random,
-        re,
-        rpc,
-        sets,
-        ssl,
-        string,
-        supervisor,
-        sys,
-        timer,
-        unicode,
-        xmerl_scan,
-        zlib
-    ]) of
-        true ->
-            true;
-        false ->
-            case can_apply(M, F, 0) of
-                {true, N} ->
-                    io:format("EXISTS: ~s:~s/~p~n", [M, F, N]),
-                    true;
-                false -> false
-            end
+can_apply(error, _F) -> true;
+can_apply(throw, _F) -> true;
+can_apply(exit, _F) -> true;
+can_apply('MODULE', _F) -> true;
+can_apply(M, _F) ->
+    case get(M) of
+        undefined ->
+            Result = module_exists(M),
+            put(M, Result),
+            Result;
+        Result ->
+            Result
     end.
 
-can_apply(_M, _F, 10) -> false;
-can_apply(M, F, N) ->
-    try
-        apply(M, F, lists:seq(1, N)),
-        {true, N}
-    catch
-        error:undef ->
-            can_apply(M, F, N + 1);
-        _:_ ->
-            {true, N}
+module_exists(M) ->
+    case code:which(M) of
+        non_existing ->
+            false;
+        _ ->
+            true
     end.
