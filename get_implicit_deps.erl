@@ -111,8 +111,9 @@ deps_modules(Dirname) ->
                 undefined ->
                     [];
                 Deps ->
-                    lists:map(fun({Module, _V, _O}) ->
-                        Module
+                    lists:map(fun
+                        ({Module, _V, _S}) -> Module;
+                        ({Module, _V, _S, _O}) -> Module
                     end, Deps)
             end
     end.
