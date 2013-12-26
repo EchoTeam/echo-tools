@@ -37,7 +37,7 @@ lines(Dirname) ->
     ok = cmd("rm -f " ++ ?TMP_FILENAME),
 
     Grep = fun(Pattern) ->
-        cmd("cd " ++ Dirname ++ " && grep -nIR \"" ++ Pattern ++ "\" * | grep -v \"\.eunit\" >> " ++ ?TMP_FILENAME)
+        cmd("cd " ++ Dirname ++ " && grep -nIR \"" ++ Pattern ++ "\" --exclude-dir=deps * | grep -v \"\.eunit\" >> " ++ ?TMP_FILENAME)
     end,
     ok = Grep(regexp({function, v1}, bash, false)),
     ok = Grep(regexp({function, v2}, bash, false)),
