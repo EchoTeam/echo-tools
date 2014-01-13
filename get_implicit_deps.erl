@@ -36,12 +36,16 @@ parse(Dirname) ->
 lines(Dirname) ->
     ok = cmd("rm -f " ++ ?TMP_FILENAME),
 
-    Grep = fun(Pattern) ->
-        cmd("cd " ++ Dirname ++ " && grep -nIR \"" ++ Pattern ++ "\" --exclude-dir=deps * | grep -v \"\.eunit\" >> " ++ ?TMP_FILENAME)
+    Grep = fun(Pattern, SearchInDeps) ->
+        Params = case SearchInDeps of
+            true -> "";
+            false -> " --exclude-dir=deps"
+        end,
+        cmd("cd " ++ Dirname ++ " && grep -nIR \"" ++ Pattern ++ "\"" ++ Params ++ " * | grep -v \"\.eunit\" >> " ++ ?TMP_FILENAME)
     end,
-    ok = Grep(regexp({function, v1}, bash, false)),
-    ok = Grep(regexp({function, v2}, bash, false)),
-    ok = Grep(regexp(module, bash, false)),
+    ok = Grep(regexp({function, v1}, bash, false), false),
+    ok = Grep(regexp({function, v2}, bash, false), false),
+    ok = Grep(regexp(module, bash, false), true),
 
     Lines = read_file(?TMP_FILENAME),
     ok = cmd("rm " ++ ?TMP_FILENAME),
