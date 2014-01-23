@@ -30,7 +30,7 @@ parse(Dirname) ->
             exit(1)
     end,
     Data = data(lines(Dirname)),
-    ImplicitDeps = implicit_deps(functions(Data), app_modules(Data) ++ deps_modules(Dirname)),
+    ImplicitDeps = implicit_deps(functions(Data), app_modules(Data) ++ deps_modules(Dirname) ++ ignore_modules(Dirname)),
     display(ImplicitDeps).
 
 lines(Dirname) ->
@@ -120,6 +120,15 @@ deps_modules(Dirname) ->
                         ({Module, _V, _S, _O}) -> Module
                     end, Deps)
             end
+    end.
+
+ignore_modules(Dirname) ->
+    Filename = filename:join(Dirname, ".implicit_deps_ignore"),
+    case filelib:is_file(Filename) of
+        false ->
+            [];
+        true ->
+            [list_to_atom(Module) || Module <- read_file(Filename)]
     end.
 
 functions(Data) ->
